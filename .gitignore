@@ -1,3 +1,15 @@
-build
 mx.scratch
 !.settings
+build/
+Debug/
+Release/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+.DS_Store
+# indeks clangd (IntelliSense v razširitvi STM32Cube)
+.cache/

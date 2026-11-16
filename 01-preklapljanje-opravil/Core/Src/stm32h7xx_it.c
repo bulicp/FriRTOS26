@@ -22,6 +22,15 @@
 #include "stm32h7xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "FriRTOS.h"
+
+#if FRIRTOS_NAKED_HANDLERS
+/* Izberemo naked handlerja iz FriRTOS.c. CubeMX-generirana C handlerja
+ * spodaj preimenujemo, da ne prideta v vektorsko tabelo (ostaneta pa
+ * v kodi za primerjavo). */
+#define SVC_Handler    SVC_Handler_C
+#define PendSV_Handler PendSV_Handler_C
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,7 +66,8 @@
 /* External variables --------------------------------------------------------*/
 
 /* USER CODE BEGIN EV */
-
+extern TCB_Type TCB[NTASKS];
+extern volatile int current_task;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -145,6 +155,22 @@ void SVC_Handler(void)
 {
   /* USER CODE BEGIN SVCall_IRQn 0 */
 
+  /* We are here, because main() called SVC. As we interrupted main(),
+   * there is no need to save its context. We should never return to main()!!
+   * The SVC_Handler should start the first task - Task 0
+   * The Task 0 is started by restoring its SW context and its HW context
+   * upon the exception return.
+   */
+  // set PSP to Task0.SP:
+  //__NOP(); // just to ensure debugger stops here
+  __set_PSP((unsigned int)TCB[0].sp);
+  current_task = 0;
+  //__NOP(); // just to ensure debugger stops here
+  // Restore the context of the Task 0:
+  __RESTORE_CONTEXT();
+  // Enable all interrupts:
+  __set_BASEPRI(0x00000000);
+
   /* USER CODE END SVCall_IRQn 0 */
   /* USER CODE BEGIN SVCall_IRQn 1 */
 
@@ -170,6 +196,9 @@ void DebugMon_Handler(void)
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
+   __SAVE_CONTEXT();
+  current_task = ContextSwitch(current_task, TCB);
+  __RESTORE_CONTEXT();
 
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
@@ -184,8 +213,28 @@ void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
 
+  // Pend a PendSV exception by writing 1 to PENDSVSET at bit 28 in ICSR
+  SCB->ICSR |= (unsigned long)0x01 << 28;
+
+
+  //__NOP();
+  //__NOP();
+  //__NOP();
+  /*
+  __asm volatile (
+      "mov   r0,  #0x00000000  \n\t"
+      "mov   r1,  #0x00000000  \n\t"
+      "mov   r2,  #0x00000000  \n\t"
+      "mov   r3,  #0x00000000  \n\t"
+      "mov   r12, #0x00000000  \n\t"
+      :         // izhodi: ni jih 
+      :         // vhodi: ni jih
+      : "r0","r1","r2","r3",
+        "r12","memory"   // clobbers - kaj koda spremeni
+  );
+  */ 
   /* USER CODE END SysTick_IRQn 0 */
-  HAL_IncTick();
+  //HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
 
   /* USER CODE END SysTick_IRQn 1 */

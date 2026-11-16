@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "FriRTOS.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +42,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+extern uint32_t stackRegion[NTASKS * TASK_STACK_SIZE];
+extern TCB_Type TCB[NTASKS];
 
+void (*TaskFunctions[NTASKS])();	// Tabela naslovov funkcij opravil
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,11 +69,16 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  // Allow only SVCall (priority level 0) during the scheduler initialization process
+  // Exclude all exceptions but 0.
+  // CM7 uses __NVIC_PRIO_BITS (4) Bits for the Priority Levels
+  // ne dovolim nobenih drugih prekinitvenih rutin, razen SVC, ki bo zagnal prvo opravilo
+  __set_BASEPRI(0x01 << __NVIC_PRIO_BITS);
 
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
-  MPU_Config();
+  //MPU_Config();
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -91,6 +99,29 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
+
+
+  HAL_NVIC_SetPriority(SVCall_IRQn, 0, 0);   // Set SVCall to highest level
+  HAL_NVIC_SetPriority(SysTick_IRQn, 1, 0);   // Set SysTick priority
+  HAL_NVIC_SetPriority(PendSV_IRQn, 15, 0);  // Set PendSV to lowest level
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 10, 0); // Set Btn priority
+
+
+  TaskFunctions[0] = Task0;
+  TaskFunctions[1] = Task1;
+  TaskFunctions[2] = Task2;
+  TaskFunctions[3] = Task3;
+
+  InitSchedulerSVC(stackRegion, TCB, TaskFunctions);
+
+  // Switch to NOT PRIVILEDGED with PSP (Set CONTROL to 0x03)
+  __set_CONTROL(0x00000003);
+  //__ISB(); // Execute ISB after changing CONTROL (architectural recommendation)
+
+  __asm volatile("svc 0");
+
+
+  while(1){}
 
 /*
  * ============================================================================
@@ -188,6 +219,7 @@ int main(void)
       "mov   r4,  #0xA4A4A4A4  \n\t"
       "mov   r5,  #0xA5A5A5A5  \n\t"
       "mov   r6,  #0xA6A6A6A6  \n\t"
+      "mov   r7,  #0xA7A7A7A7  \n\t"
       "mov   r8,  #0xA8A8A8A8  \n\t"
       "mov   r9,  #0xA9A9A9A9  \n\t"
       "mov   r10, #0xAAAAAAAA  \n\t"
