@@ -17,7 +17,7 @@
  *       ne doda prologa/epiloga, zato je kontekst r4-r11 pod našim
  *       nadzorom ne glede na nivo optimizacije.
  */
-#define FRIRTOS_NAKED_HANDLERS 0
+#define FRIRTOS_NAKED_HANDLERS 1
 
 #include "main.h"
 
