@@ -35,7 +35,7 @@
  *    0 = single (vsak prenos posebej, en podatek na arbitražo vodila)
  *    1 = INCR4  (4 zaporedni podatki na eno arbitražo vodila)
  *  Preizkusi oboje in primerjaj čas na osciloskopu / v dma_m2m_cycles. */
-#define DMA_M2M_BURST_INCR4   0
+#define DMA_M2M_BURST_INCR4   1
 
 /** Prioriteta toka (PL): 0 = nizka, 1 = srednja, 2 = visoka, 3 = zelo visoka. */
 #define DMA_M2M_PRIORITY      2u

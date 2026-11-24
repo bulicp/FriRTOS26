@@ -98,11 +98,31 @@
 
 #include "DMA_M2M.h"
 
-/* Zastavice toka 0 v LISR / LIFCR */
-#define DMA_S0_FEIF   (1u << 0)
-#define DMA_S0_DMEIF  (1u << 2)
+/* ---------------------------------------------------------------------------
+ * Zastavice toka 0 v LISR / LIFCR
+ *
+ *   DMA2->LISR (Low Interrupt Status Register, toki 0..3) lahko samo BEREMO.
+ *   Zastavico pobrišemo tako, da na ISTI bit v DMA2->LIFCR zapišemo 1
+ *   (pisanje 0 nima učinka, zato drugih zastavic ne pokvarimo).
+ *   Zastavica se postavi ne glede na to, ali je prekinitev omogočena;
+ *   prekinitev sproži samo, če je v SxCR vklopljen pripadajoči bit ...IE.
+ *   Če zastavice v ISR ne pobrišemo, se prekinitev ponavlja v nedogled,
+ *   nov prenos pa se ne zažene.
+ * ------------------------------------------------------------------------- */
+#define DMA_S0_FEIF   (1u << 0)   /* FIFO error: pre-/podkoračitev FIFO      */
+#define DMA_S0_DMEIF  (1u << 2)   /* napaka direktnega načina                */
+
+/* TEIF0 - Transfer Error: napaka na vodilu med prenosom. DMA je dostopal do
+ *   naslova, ki ga ne doseže ali ne obstaja (npr. src/dst v DTCM
+ *   0x20000000). Strojna oprema tok TAKOJ ustavi (pobriše EN), prenos
+ *   ostane nedokončan. Prekinitev sproži, ker je v CR vklopljen TEIE. */
 #define DMA_S0_TEIF   (1u << 3)
-#define DMA_S0_HTIF   (1u << 4)
+
+#define DMA_S0_HTIF   (1u << 4)   /* Half Transfer: prenesena polovica NDTR  */
+
+/* TCIF0 - Transfer Complete: prenos je končan, NDTR je padel na 0.
+ *   Strojna oprema ob tem sama pobriše EN (pri M->M ni krožnega načina).
+ *   Prekinitev sproži, ker je v CR vklopljen TCIE. */
 #define DMA_S0_TCIF   (1u << 5)
 #define DMA_S0_ALL    (DMA_S0_FEIF | DMA_S0_DMEIF | DMA_S0_TEIF | DMA_S0_HTIF | DMA_S0_TCIF)
 
@@ -259,6 +279,10 @@ void DMA2_Stream0_IRQHandler(void)
     uint32_t t_end = DWT->CYCCNT;   /* čim prej, da je meritev čim točnejša */
     uint32_t isr   = DMA2->LISR;
 
+    /* LISR preberemo ENKRAT in nato preverjamo kopijo: tako vidimo stanje
+     * vseh zastavic v istem trenutku. */
+
+    /* TCIF0: uspešen konec prenosa (NDTR = 0). */
     if (isr & DMA_S0_TCIF)
     {
         PB4_LOW();                          /* konec impulza na osciloskopu */
@@ -267,6 +291,8 @@ void DMA2_Stream0_IRQHandler(void)
         dma_m2m_done = 1u;
     }
 
+    /* TEIF0: napaka na vodilu, tok je že ustavljen, prenos nedokončan.
+     * Tudi tu postavimo dma_m2m_done, sicer bi glavna zanka čakala večno. */
     if (isr & DMA_S0_TEIF)
     {
         PB4_LOW();

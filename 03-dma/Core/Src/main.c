@@ -46,7 +46,8 @@ TIM_HandleTypeDef htim3;
 /* USER CODE BEGIN PV */
 
 /* Število 32-bitnih besed v enem prenosu (4096 besed = 16 KB). */
-#define N_WORDS   4096u
+//#define N_WORDS   4096u
+#define N_WORDS   2048u
 
 /* Medpomnilnika MORATA biti v AXI SRAM (DMA_BUFFER), ker DMA2 ne doseže
  * DTCM, kamor povezovalnik privzeto postavi globalne spremenljivke. */
@@ -74,6 +75,28 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/* PB15: impulz za CPE prenos (PB4 je impulz za DMA prenos).
+ * Na osciloskopu primerjaj širini obeh impulzov. Pin postavljamo prek BSRR:
+ * zgornjih 16 bitov pin pobriše, spodnjih 16 ga postavi (atomarno). */
+#define PB15_HIGH()   (GPIOB->BSRR = (1u << 15))
+#define PB15_LOW()    (GPIOB->BSRR = (1u << (15 + 16)))
+
+static void pb15_init(void)
+{
+    /*   MODER   bita 31:30 = 01  splošni izhod
+     *   OTYPER  bit 15     = 0   push-pull
+     *   OSPEEDR bita 31:30 = 11  zelo hitri fronti
+     *   PUPDR   bita 31:30 = 00  brez uporov                                 */
+    RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
+    (void)RCC->AHB4ENR;
+
+    PB15_LOW();
+    GPIOB->MODER   = (GPIOB->MODER & ~(3u << 30)) | (1u << 30);
+    GPIOB->OTYPER &= ~(1u << 15);
+    GPIOB->OSPEEDR |=  (3u << 30);
+    GPIOB->PUPDR  &= ~(3u << 30);
+}
 
 /* USER CODE END 0 */
 
@@ -112,6 +135,7 @@ int main(void)
   //MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   dma_m2m_init();   /* DMA2 ura, PB4 izhod, DWT->CYCCNT, NVIC DMA2_Stream0 */
+  pb15_init();      /* PB15 izhod: impulz med CPE prenosom */
 
 
 
@@ -162,7 +186,21 @@ int main(void)
   {
     uint32_t i;
 
-    /* 1) Pripravimo podatke: izvor z vzorcem, cilj pobrišemo. */
+    /* 1) Pripravimo podatke: izvor z vzorcem, cilj pobrišemo.
+     *
+     *    Vzorec je psevdonaključen, da preverjanje ujame čim več napak:
+     *    - 0x9E3779B9 = 2^32 / φ (φ = 1,618... zlati rez). To je konstanta
+     *      Knuthovega multiplikativnega ("Fibonaccijevega") zgoščevanja
+     *      (uporablja jo tudi šifrirni algoritem TEA). Množenje z njo
+     *      razprši zaporedne indekse i po vseh 32 bitih, zato so sosednje
+     *      besede povsem različne. Pri preprostem vzorcu (src[i] = i) bi
+     *      zamik za eno besedo, podvojena beseda ali napačen naslov lahko
+     *      ostali neopaženi, tu pa jih napake_dma takoj ujame.
+     *    - Pripona u: nepredznačeno množenje, preliv se definirano ovije
+     *      po modulu 2^32 (pri predznačenih tipih bi bil nedefiniran).
+     *    - XOR s stevec_prenosov: v vsaki ponovitvi zanke so podatki
+     *      drugačni, zato v dst ne morejo ostati "pravilni" podatki iz
+     *      prejšnjega kroga, če DMA česa ne bi prepisal. */
     for (i = 0; i < N_WORDS; i++)
     {
       src[i] = (i * 0x9E3779B9u) ^ stevec_prenosov;
@@ -190,13 +228,17 @@ int main(void)
     /* 4) Za primerjavo: isti prenos s CPE, izmerjen z DWT->CYCCNT.
      *    (V Debug prevodu brez optimizacije je zanka precej počasnejša;
      *    preizkusi tudi Release ali memcpy().) */
+    /*    PB15 = 1 med CPE prenosom: širino impulza na PB15 primerjaj
+     *    z impulzom na PB4 (DMA). */
     for (i = 0; i < N_WORDS; i++) dst[i] = 0u;
+    PB15_HIGH();
     uint32_t t0 = dwt_cycles();
     for (i = 0; i < N_WORDS; i++)
     {
       dst[i] = src[i];
     }
     cycles_cpu = dwt_cycles() - t0;
+    PB15_LOW();
 
     napake_cpu = 0u;
     for (i = 0; i < N_WORDS; i++)
